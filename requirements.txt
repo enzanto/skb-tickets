@@ -1,0 +1,5 @@
+requests
+pandas
+gspread
+gspread_dataframe
+datetime
