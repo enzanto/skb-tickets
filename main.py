@@ -6,19 +6,36 @@ from gspread_dataframe import set_with_dataframe
 from datetime import datetime as dt, timedelta
 import os
 
+version = "v1.0.2"
 # set variables
 gc = gspread.service_account("/usr/src/app/credentials.json")
 email = os.getenv('EMAIL')
 now = dt.now()
 
 
-def get_matches():
+def get_matches(all = False):
     sh_matches = gc.open('matches')
     ws_matches = sh_matches.worksheet('Sheet1')
     df_matches = pd.DataFrame(ws_matches.get_all_records())
     df_matches['time'] = pd.to_datetime(df_matches['time'])
-    df_matches = df_matches[df_matches['time'] > now + timedelta(minutes=35)]
+    if all != True:
+        df_matches = df_matches[df_matches['time'] > now + timedelta(minutes=35)]
+    print(sh_matches.id)
     return df_matches
+
+def update_matches(sh, sheet_name):
+    all = True
+    sh_matches = gc.open('matches')
+    ws_matches = sh_matches.worksheet('Sheet1')
+    df_matches = pd.DataFrame(ws_matches.get_all_records())
+    df_matches['time'] = pd.to_datetime(df_matches['time'])
+    if all != True:
+        df_matches = df_matches[df_matches['time'] > now + timedelta(minutes=35)]
+    df_matches.loc[df_matches['sheet'] == sheet_name,'sheeturl'] = "https://docs.google.com/spreadsheets/d/%s" % sh.id
+    sh_matches.worksheet('test').update("b2", "test")
+    set_with_dataframe(sh_matches.worksheet("Sheet1"),df_matches)
+    print(df_matches)
+
 
 
 def get_sections(match_url):
@@ -33,18 +50,31 @@ def get_sections(match_url):
     sections = set(sections)
     return sections
 
-def open_sheet(sheet_name):
+def open_sheet(sheet_name, sheet_url):
     try:
-        sh = gc.open(sheet_name)
+        try:
+            sh = gc.open_by_url(sheet_url)
+            print("opened by url")
+        except Exception as e:
+            print(e)
+            sh = gc.open(sheet_name)
+            update_matches(sh, sheet_name)
+            print("opened by name")
+    
     except:
+        print("create new for " + sheet_name)
         sh = gc.create(sheet_name)
         sh.share(email, perm_type='user', role='writer')
+        sh.share('',perm_type='anyone', role='reader')
+        update_matches(sh, sheet_name)
+
     worksheets = ['oversikt','Main','Frydenbø','BT-BOB','SPV','Fjordkraft','VIP','timeline']
     for sheet in worksheets:
         try:
             sh.worksheet(sheet)
         except:
             sh.add_worksheet(sheet,"2000","20")
+    print("https://docs.google.com/spreadsheets/d/%s" % sh.id)
     return sh
 
 def get_ticket_info(match_url,sections):
@@ -97,11 +127,13 @@ def update_sheet(df,sh):
     set_with_dataframe(sh.worksheet('VIP'),vip)
 
 if __name__ == "__main__":
+    print(version)
     df_matches = get_matches()
     for i in df_matches.index:
         match_url = df_matches.loc[i]['kampurl']
         sheet_name = df_matches.loc[i]['sheet']
+        sheet_url = df_matches.loc[i]['sheeturl']
         sections = get_sections(match_url)
         df = get_ticket_info(match_url,sections)
-        sh = open_sheet(sheet_name)
+        sh = open_sheet(sheet_name, sheet_url)
         update_sheet(df,sh)
